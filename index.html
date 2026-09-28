@@ -414,6 +414,23 @@
         const totalDays = 31;
         let trackerData = habits.map(() => Array(totalDays).fill(false));
 
+        function normalizeTrackerData(rawData) {
+            if (Array.isArray(rawData)) {
+                return rawData.map(row => Array.isArray(row) ? row.map(value => Boolean(value)) : Array(totalDays).fill(false));
+            }
+
+            if (rawData && typeof rawData === 'object') {
+                const normalized = [];
+                Object.keys(rawData).forEach((key) => {
+                    const row = Array.isArray(rawData[key]) ? rawData[key] : [];
+                    normalized[Number(key)] = row.map(value => Boolean(value));
+                });
+                return normalized;
+            }
+
+            return habits.map(() => Array(totalDays).fill(false));
+        }
+
         function saveLocalData() {
             localStorage.setItem('habitTrackerData', JSON.stringify({ habits, trackerData }));
         }
@@ -421,9 +438,9 @@
         function loadLocalData() {
             try {
                 const saved = JSON.parse(localStorage.getItem('habitTrackerData'));
-                if (saved && Array.isArray(saved.habits) && Array.isArray(saved.trackerData)) {
+                if (saved && Array.isArray(saved.habits)) {
                     habits = saved.habits;
-                    trackerData = saved.trackerData.map(row => Array.isArray(row) ? row : Array(totalDays).fill(false));
+                    trackerData = normalizeTrackerData(saved.trackerData);
                 }
             } catch (error) {
                 console.warn('Could not load local data:', error);
@@ -438,16 +455,24 @@
                 if (!snapshot.exists) return false;
 
                 const data = snapshot.data();
-                if (!data || !Array.isArray(data.habits) || !Array.isArray(data.trackerData)) return false;
+                if (!data || !Array.isArray(data.habits)) return false;
 
                 habits = data.habits;
-                trackerData = data.trackerData.map(row => Array.isArray(row) ? row : Array(totalDays).fill(false));
+                trackerData = normalizeTrackerData(data.trackerData);
                 saveLocalData();
                 return true;
             } catch (error) {
                 console.warn('Firebase load failed, using local data:', error);
                 return false;
             }
+        }
+
+        function firebaseSafeTrackerData() {
+            const safeTrackerData = {};
+            trackerData.forEach((row, index) => {
+                safeTrackerData[index] = Array.isArray(row) ? row.map(value => Boolean(value)) : Array(totalDays).fill(false);
+            });
+            return safeTrackerData;
         }
 
         async function saveDataToFirebase() {
@@ -457,7 +482,10 @@
             }
 
             try {
-                await db.collection('habitTracker').doc('main').set({ habits, trackerData }, { merge: true });
+                await db.collection('habitTracker').doc('main').set({
+                    habits,
+                    trackerData: firebaseSafeTrackerData()
+                }, { merge: true });
                 saveLocalData();
             } catch (error) {
                 console.warn('Firebase save failed, storing locally instead:', error);
